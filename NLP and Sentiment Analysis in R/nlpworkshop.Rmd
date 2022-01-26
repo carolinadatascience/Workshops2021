@@ -1,0 +1,232 @@
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+# Intro to sentiment analysis and NLP.
+
+## What is sentiment analysis and NLP and whats the relation between them?
+
+##### Think about the mounds of emails, texts, reviews, tweets, and more textual data that contain people's opinions. Sentiment analysis occurs when we analyze this textual data to find meaningful patterns.  
+
+##### Natural language processing is broadly defined as using software to manipulate natural languages (speech, text,...). Sentiment analysis is one of the most important fields of NLP.
+
+##### Examples in which sentiment analysis is used:
+##### - Brand monitoring  
+##### - Policy making
+##### - Market research
+#####  - Political Campaigns 
+
+
+### Analyzing Rick and Morty scripts
+
+```{r}
+library(readr)
+library(tidyverse)
+library(wordcloud)
+library(tidytext)
+library(textdata)
+library(knitr)
+library(stringr)
+library(dplyr)
+library(tm)
+```
+
+##### Loading Rick and Morty scripts and taking a glimpse
+
+```{r}
+data<- read.csv("RickAndMortyScripts.csv")
+
+glimpse(data)
+
+```
+
+
+
+```{r}
+# Top twelve characters with the most dialogues
+data %>% 
+  # prepare the table
+  count(name) %>%
+  arrange(desc(n)) %>% 
+  slice(1:12) %>%
+  
+  # the plot
+  ggplot(aes(x=reorder(name, n), y=n)) +
+  geom_bar(stat="identity", aes(fill=n), show.legend=F,linetype=4)  +
+  labs(x="Character", y="Number of dialogues", title="Most talkative in Rick & Morty") +
+  coord_flip()
+
+```
+
+
+
+```{r}
+wordcloud((data$line), size=1.6, minSize = 0.9,
+          shape="square", fontFamily="arial",colors=brewer.pal(9, 'Spectral'))
+```
+
+### Lexicons
+
+##### Text data is compared to lists associated with negative and positive words in the text. These lists are called lexicons and you can create your own or use a common one. For our purposes, we will use Bing,NRC, and Afinn. 
+
+### Tokens
+
+##### When doing sentiment analysis, we often need to slice the text into different forms when tidying it. The most common form is to tokenize it by word. 
+
+
+
+```{r}
+#get lexicon from package
+bing <-get_sentiments("bing")
+afinn <-get_sentiments("afinn")
+nrc<- get_sentiments("nrc")
+
+tokens <- data %>% 
+  mutate(line = as.character(data$line)) %>% 
+  unnest_tokens(word, line)
+
+tokens %>% head(6) %>% select(name, word)
+
+```
+
+
+##### Bing lexicon classifies words into negative or positive
+
+```{r}
+library(reshape2)
+tokens %>% 
+  # append the bing sentiment and prepare the data
+  inner_join(bing, "word") %>%
+  count(word, sentiment, sort=T) %>% 
+  acast(word ~ sentiment, value.var = "n", fill=0) %>% 
+  
+  # wordcloud
+  
+  comparison.cloud()
+```
+
+```{r}
+
+to_plot <- tokens %>% 
+  
+  # joing bing with data and filter it
+  inner_join(bing, "word") %>% 
+  filter(name %in% c("Rick","Morty","Beth","Jerry","Summer")) %>% 
+  
+  # sum number of words per sentiment and character
+  count(sentiment, name) %>% 
+  group_by(name, sentiment) %>% 
+  summarise(sentiment_sum = sum(n)) %>% 
+  ungroup()
+
+# The Chord Diagram  
+library(circlize)
+circos.clear()
+circos.par(gap.after = c(rep(2, length(unique(to_plot[[1]])) - 1), 10,
+                         rep(2, length(unique(to_plot[[2]])) - 1), 10), gap.degree=2)
+
+chordDiagram(to_plot, transparency = 0.4, annotationTrack = c("name", "grid"))
+
+title("Relationship between Mood and the Smith Family members")
+
+```
+
+
+##### AFINN Lexicon
+##### Ranks words from -5 to 5 with +5 being the most positive. 
+
+```{r}
+
+tokens %>% 
+  # Count how many word per value
+  inner_join(afinn, "word") %>% 
+  count(value, sort=T) %>%
+  
+  # Plot
+  ggplot(aes(x=value, y=n)) +
+  geom_bar(stat="identity", aes(fill=n), show.legend = F)+
+  
+  labs(x="Score", y="Frequency", title="Word count distribution") 
+
+```
+
+
+##### Which words contributed the most to the score?
+```{r}
+tokens %>% 
+  # by word and value count number of occurences
+  inner_join(afinn, "word") %>% 
+  count(word, value, sort=T) %>% 
+  mutate(contribution = n * value,
+         sentiment = ifelse(contribution<=0, "Negative", "Positive")) %>% 
+  arrange(desc(abs(contribution))) %>% 
+  head(16) %>% 
+  
+  # plot
+  ggplot(aes(x=reorder(word, contribution), y=contribution, fill=sentiment)) +
+  
+  geom_col(aes(fill=sentiment), show.legend = F) +
+  
+  labs(x="Word", y="Contribution", title="Words with biggest contributions in moods") +
+  coord_flip() 
+```
+
+
+##### NRC Lexicon
+
+##### The NRC Emotion Lexicon is a list of words and their associations with eight basic emotions (anger, fear, anticipation, trust, surprise, sadness, joy, and disgust) and two sentiments (negative and positive).
+
+```{r}
+
+sentiments <- tokens %>% 
+  inner_join(nrc, "word") %>%
+  count(sentiment, sort=T)
+
+sentiments
+```
+
+##### What's the overall sentiment like?
+```{r}
+sentiments %>% 
+  ggplot(aes(x=reorder(sentiment, n), y=n)) +
+  geom_bar(stat="identity", aes(fill=sentiment), show.legend=F) +
+  labs(x="Sentiment", y="Frequency", title="Overall mood in Rick & Morty") +
+  coord_flip() + 
+  theme_bw()
+```
+##### For each of the ten sentiments, which words are said the most in r&m?
+
+```{r}
+tokens %>% 
+  inner_join(nrc, "word") %>% 
+  count(sentiment, word, sort=T) %>% 
+  group_by(sentiment) %>% 
+  arrange(desc(n)) %>% 
+  slice(1:7) %>% 
+  
+  ggplot(aes(x=reorder(word, n), y=n)) +
+  geom_col(aes(fill=sentiment), show.legend = F) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  coord_flip() +
+  theme_bw() 
+```
+
+##### Same as above, but grouping by character and showing sentiment frequency
+
+```{r}
+tokens %>% 
+  filter(name %in% c("Rick","Morty","Beth","Jerry","Summer")) %>% 
+  inner_join(nrc, "word") %>% 
+  count(name, sentiment, sort=T) %>% 
+  
+  ggplot(aes(x=sentiment, y=n)) +
+  geom_col(aes(fill=sentiment), show.legend = F) +
+  facet_wrap(~name, scales="free_x") +
+  labs(x="Sentiment", y="Frequency", title="Character Moods") +
+  coord_flip() +
+  theme_bw() 
+
+```
+
+
+
+
