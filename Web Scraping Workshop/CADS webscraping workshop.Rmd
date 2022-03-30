@@ -1,0 +1,140 @@
+---
+title: "CADS R Web Scraping Workshop"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Load necessary packages:
+```{r}
+library(tidyverse)
+library(rvest)
+library(devtools)
+library(gridExtra)
+```
+
+## Read in data from website:
+```{r}
+URL="https://www.sports-reference.com/cbb/play-index/matchup_finder.cgi?request=1&year_min=1950&year_max=2022&school_id=duke&opp_id=north-carolina&game_type=A&game_month=&game_location=&game_result=&is_overtime=&comp_school=le&comp_opp=le&rank_school=ANY&rank_opp=ANY&order_by=date_game&order_by_asc=&offset=0"
+UNC = URL %>%
+  read_html() %>%
+  html_table(fill=T) %>% #creates a list of all tables on webpage
+  .[[1]] #selecting table we want
+
+head(UNC)
+```
+
+## Clean the data:
+
+- Change the column names since some column names are missing and to clarify the data frame
+- Remove the empty columns, remove **School** and **Opp** variables since they are repetitive
+```{r}
+colnames(UNC) = c("Year","Date","Empty","School","Rank_Duke","Home_Team","Opp","Rank_UNC","Winner","Empty",
+                  "Duke_Pts","UNC_Pts","MOV","Empty","OT")
+UNC = select(UNC, -c(3,10,14,"School","Opp"))
+```
+
+- Make all columns with numbers numeric variables rather than characters so we can do calculations with them
+- Automatically fills in NA values now
+```{r}
+UNC = mutate_at(UNC,c(3,5,7:10), as.numeric)
+```
+
+- Remove extra heading rows
+```{r}
+UNC = UNC[-c(21,42,63,84),]
+```
+
+- Fix **Winner** variable
+```{r}
+UNC$Winner = ifelse(UNC$Winner == "W","Duke","UNC")
+```
+
+- Fix **Home_Team** variable
+```{r}
+UNC$Home_Team = ifelse(UNC$Home_Team == "@","UNC","Duke")
+```
+
+- Fix **OT** by filling in 0 for any missing observations
+```{r}
+UNC$OT = ifelse(is.na(UNC$OT),0,UNC$OT)
+```
+
+- Take absolute value of MOV
+```{r}
+UNC$MOV = abs(UNC$MOV)
+```
+
+
+## Calculations:
+
+Average points for each team and average point differntial
+```{r}
+UNC_avg = mean(UNC$UNC_Pts)
+Duke_avg = mean(UNC$Duke_Pts)
+MOV_avg = mean(UNC$MOV)
+
+cat("The average number of points UNC has scored against Duke is", UNC_avg, sep='\n')
+cat("The average number of points Duke has scored against UNC is",Duke_avg, sep='\n')
+cat("The average point differential is",MOV_avg, sep='\n')
+```
+
+
+Maximums:
+```{r}
+UNC_max_points = max(UNC$UNC_Pts)
+Duke_max_points = max(UNC$Duke_Pts)
+MOV_max_value = max(UNC$MOV)
+
+cat("The max number of points UNC has scored against Duke is", UNC_max_points, sep='\n')
+cat("The max number of points Duke has scored against UNC is",Duke_max_points, sep='\n')
+cat("The max point differential was",MOV_max_value, sep='\n')
+```
+
+## Visuals:
+
+Point differentials over time:
+```{r}
+ggplot(UNC) +
+  geom_point(aes(Year,MOV, color=Winner)) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+Distribution of each team's points
+```{r}
+p1 = ggplot(UNC) +
+  geom_boxplot(aes(UNC_Pts), color="skyblue2") +
+  xlab("UNC Points") +
+  xlim(45,105)
+p2 = ggplot(UNC) +
+  geom_boxplot(aes(Duke_Pts), color='blue4') +
+  xlab("Duke Points") +
+  xlim(45,105)
+
+LAYOUT=matrix(c(1,2,1,2),ncol=2)
+grid.arrange(p1,p2,layout_matrix=LAYOUT)
+```
+
+
+## Probabilities
+
+Chance of UNC winning if game goes to overtime
+```{r}
+overtime_games = filter(UNC,OT>0) #games that went into overtime
+ot_games_won = filter(overtime_games,Winner=="UNC") #overtime games where UNC won
+
+ot_win = nrow(ot_games_won)/nrow(overtime_games)
+cat("UNC has won",ot_win*100,"percent of their games against Duke in overtime :(. But, note that the sample size is small.")
+```
+
+Chance of home team winning:
+```{r}
+home_team_wins = filter(UNC,Home_Team == Winner) #games where home team wins
+
+home_wins_prob = nrow(home_team_wins)/nrow(UNC)
+cat("The home team has won",home_wins_prob*100,"percent of games!")
+```
+
+
+
